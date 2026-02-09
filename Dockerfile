@@ -22,7 +22,6 @@ RUN pip list --format=freeze
 
 FROM python:3.11-slim AS runtime
 
-ARG APP_VERSION=1.0.0
 ARG BUILD_DATE
 
 LABEL maintainer="Anna Zaitseva" \

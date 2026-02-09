@@ -1,0 +1,32 @@
+services:
+  fastapi-app:
+    container_name: fastapi-app-container
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - APP_VERSION=${APP_VERSION}
+    image: fastapi-app:${APP_VERSION}
+    pull_policy: never
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/app/data:rw
+    networks:
+      - app-network
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+volumes:
+  app-data:
+
+networks:
+  app-network:
+    driver: bridge
