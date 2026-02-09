@@ -1,32 +1,97 @@
 services:
-  fastapi-app:
-    container_name: fastapi-app-container
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq-container
+    restart: always
+    networks:
+      - rabbitmq-network
+      - app1-network
+      - app2-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  fastapi-app1:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         - APP_VERSION=${APP_VERSION}
+    container_name: fastapi-app1-container
     image: fastapi-app:${APP_VERSION}
     pull_policy: never
     restart: always
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
-      - app-data:/app/data:rw
+      - app1-data:/app/data:rw
     networks:
-      - app-network
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - app1-network
+    environment:
+      - APP_INSTANCE=1
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  fastapi-app2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - APP_VERSION=${APP_VERSION}
+    container_name: fastapi-app2-container
+    image: fastapi-app:${APP_VERSION}
+    pull_policy: never
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8002:8000"
+    volumes:
+      - app2-data:/app/data:rw
+    networks:
+      - app2-network
+    environment:
+      - APP_INSTANCE=2
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
-  app-data:
+  rabbitmq-data:
+    driver: local
+  app1-data:
+    driver: local
+  app2-data:
+    driver: local
 
 networks:
-  app-network:
+  rabbitmq-network:
     driver: bridge
+    name: rabbitmq-network
+  app1-network:
+    driver: bridge
+    name: app1-network
+  app2-network:
+    driver: bridge
+    name: app2-network

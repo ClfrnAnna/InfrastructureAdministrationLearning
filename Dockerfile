@@ -2,6 +2,7 @@ FROM python:3.11-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    curl\
     python3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -41,8 +42,8 @@ COPY --chown=appuser:appuser main.py ./
 USER appuser
 
 ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPYCACHEPREFIX=/tmp/.pycache
+    PYTHONPATH=/app
+    DATA_DIR=/app/data
 
 EXPOSE 8000
 

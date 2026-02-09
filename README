@@ -1,0 +1,21 @@
+Check isolation network apps
+
+docker exec fastapi-app1-container python -c "
+import socket
+try:
+    ip = socket.gethostbyname('rabbitmq')
+    print(f'RabbitMQ IP: {ip}')
+    print('RabbitMQ доступен по имени')
+except Exception as e:
+    print(f'Не удалось разрешить rabbitmq: {e}')
+"
+
+docker exec fastapi-app1-container python -c "
+import socket
+try:
+    ip = socket.gethostbyname('fastapi-app2')
+    print(f'App2 IP: {ip}')
+    print('App2 доступен по имени (это не должно быть так)')
+except Exception as e:
+    print(f'App2 НЕ доступен: {e}')
+"
