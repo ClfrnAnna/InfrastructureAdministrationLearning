@@ -41,9 +41,7 @@ COPY --chown=appuser:appuser main.py ./
 
 USER appuser
 
-ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH=/app
-    DATA_DIR=/app/data
+ENV PATH="/opt/venv/bin:$PATH"
 
 EXPOSE 8000
 
