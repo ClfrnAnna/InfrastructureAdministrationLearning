@@ -1,0 +1,11 @@
+*
+
+!Dockerfile
+!.dockerignore
+!*.sh
+!requirements.txt
+!*.py
+!README*
+
+.git/
+.gitignore
