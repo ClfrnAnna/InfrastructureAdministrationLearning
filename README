@@ -19,3 +19,20 @@ try:
 except Exception as e:
     print(f'App2 НЕ доступен: {e}')
 "
+
+
+Testing different queues
+Cmd:
+curl -X POST http://localhost:8001/rmq-send -d "Hello from App 1"
+curl http://localhost:8001/rmq-get
+curl -X POST http://localhost:8002/rmq-send -d "Hello from App 2"
+curl http://localhost:8002/rmq-get
+curl http://localhost:8001/queue-info
+curl http://localhost:8002/queue-info
+
+PowerShall:
+Invoke-RestMethod -Uri "http://localhost:8001/rmq-send" -Method Post -ContentType "application/json" -Body '{"message": "Hello from App1"}'
+Invoke-RestMethod -Uri "http://localhost:8001/rmq-get" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8002/rmq-send" -Method Post -ContentType "application/json" -Body '{"message": "Hello from App2"}'
+Invoke-RestMethod -Uri "http://localhost:8001/queue-info"
+Invoke-RestMethod -Uri "http://localhost:8002/queue-info"

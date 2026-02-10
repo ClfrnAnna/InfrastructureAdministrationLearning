@@ -97,10 +97,7 @@ volumes:
 networks:
   rabbitmq-network:
     driver: bridge
-    name: rabbitmq-network
   app1-network:
     driver: bridge
-    name: app1-network
   app2-network:
     driver: bridge
-    name: app2-network
