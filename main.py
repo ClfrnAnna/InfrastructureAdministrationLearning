@@ -37,8 +37,6 @@ def healthy(response: Response):
 
     try:
         connection = rmq_get_connection()
-        channel = connection.channel()
-        channel.queue_declare(rmq_queue, durable=True, passive=True)
         connection.close()
         rabbit_status = "ok"
     except Exception as e:

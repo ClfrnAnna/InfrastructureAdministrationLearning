@@ -112,6 +112,23 @@ services:
       redis:
         condition: service_healthy
 
+  health-checker-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.healthchecker
+    container_name: health-checker-app-container
+    restart: on-failure:5
+    env_file:
+      - .env
+    networks:
+      - app1-network
+      - app2-network
+    depends_on:
+      fastapi-app1:
+        condition: service_started
+      fastapi-app2:
+        condition: service_started
+
 volumes:
   rabbitmq-data:
     driver: local
