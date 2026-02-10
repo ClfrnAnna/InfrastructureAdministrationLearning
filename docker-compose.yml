@@ -3,6 +3,8 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: rabbitmq-container
     restart: always
+    env_file:
+      - .env
     networks:
       - rabbitmq-network
       - app1-network
