@@ -24,6 +24,28 @@ services:
       - "5672:5672"
       - "15672:15672"
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis-container
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - rabbitmq-network
+      - app1-network
+      - app2-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+
   fastapi-app1:
     build:
       context: .
@@ -53,6 +75,8 @@ services:
       start_period: 40s
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   fastapi-app2:
@@ -85,9 +109,13 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   rabbitmq-data:
+    driver: local
+  redis-data:
     driver: local
   app1-data:
     driver: local

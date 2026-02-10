@@ -1,9 +1,15 @@
 from fastapi import FastAPI, Request, Response
 import pika
+import redis
+import json
 import os
 
 app_instance = os.getenv('APP_INSTANCE', '0')
 rmq_queue = f"{os.getenv('RABBITMQ_QUEUE_PREFIX', 'my_queue')}_{app_instance}"
+redis_queue = os.getenv('REDIS_QUEUE', 'my_redis_queue')
+r = redis.Redis(host=os.getenv('REDIS_HOST', 'redis'),
+                port=6379,
+                decode_responses=True)
 app = FastAPI()
 
 
@@ -24,6 +30,12 @@ def read_root():
 @app.get("/healthy")
 def healthy(response: Response):
     try:
+        r.ping()
+        redis_status = "ok"
+    except:
+        redis_status = "nok"
+
+    try:
         connection = rmq_get_connection()
         channel = connection.channel()
         channel.queue_declare(rmq_queue, durable=True, passive=True)
@@ -33,11 +45,9 @@ def healthy(response: Response):
         print(f"Health check error: {e}")
         rabbit_status = "nok"
 
-    if rabbit_status != "ok":
+    if redis_status != "ok" or rabbit_status != "ok":
         response.status_code = 503
-    return {"app": "ok",
-            "app_instance": app_instance,
-            "queue": rmq_queue,
+    return {"redis": redis_status,
             "rabbitmq": rabbit_status}
 
 
@@ -46,7 +56,7 @@ async def rmq_send_message(request: Request):
     body = await request.body()
     connection = rmq_get_connection()
     channel = connection.channel()
-    channel.queue_declare(rmq_queue, durable=True)
+    channel.queue_declare(rmq_queue)
     channel.basic_publish(exchange='', routing_key=rmq_queue, body=body)
     connection.close()
     return {"message": "Message sent successfully",
@@ -59,7 +69,7 @@ async def rmq_send_message(request: Request):
 def rmq_receive_message():
     connection = rmq_get_connection()
     channel = connection.channel()
-    channel.queue_declare(rmq_queue, durable=True)
+    channel.queue_declare(rmq_queue)
     messages = []
     max_messages = 1000
     message_count = 0
@@ -137,3 +147,27 @@ def get_queue_info():
             "message_count": message_count,
             "consumer_count": consumer_count,
             "status": "active" if message_count is not None else "inactive"}
+
+
+@app.post("/redis-send")
+async def redis_send(request: Request):
+    message = await request.body()
+    await r.rpush(redis_queue, message.decode('utf-8'))
+    return {"status": "sent AF boi", "message": message.decode('utf-8')}
+
+
+@app.get("/redis-get")
+async def redis_get():
+    message = r.lpop(redis_queue)
+    return {"look what I've got": message if message else 'oopsie no messages present'}
+
+
+@app.get("/calculate")
+def heavy_calc():
+    cached = r.get("calc_result")
+    if cached:
+        return {"result": json.loads(cached), "from_cache": True}
+
+    result = sum(i ** 2 for i in range(100000000))
+    r.setex("calc_result", os.getenv('REDIS_CACHE_TIME', 60), json.dumps(result))
+    return {"result": result, "from_cache": False}

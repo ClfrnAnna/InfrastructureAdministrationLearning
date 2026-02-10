@@ -34,5 +34,6 @@ PowerShall:
 Invoke-RestMethod -Uri "http://localhost:8001/rmq-send" -Method Post -ContentType "application/json" -Body '{"message": "Hello from App1"}'
 Invoke-RestMethod -Uri "http://localhost:8001/rmq-get" -Method Get
 Invoke-RestMethod -Uri "http://localhost:8002/rmq-send" -Method Post -ContentType "application/json" -Body '{"message": "Hello from App2"}'
+Invoke-RestMethod -Uri "http://localhost:8002/rmq-get" -Method Get
 Invoke-RestMethod -Uri "http://localhost:8001/queue-info"
 Invoke-RestMethod -Uri "http://localhost:8002/queue-info"
