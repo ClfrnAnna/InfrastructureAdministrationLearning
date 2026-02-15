@@ -1,0 +1,21 @@
+FROM postgres:16
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+        python3-pip \
+        python3-venv \
+        curl \
+        iputils-ping && \
+    python3 -m venv /opt/patroni-venv && \
+    /opt/patroni-venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/patroni-venv/bin/pip install --no-cache-dir \
+        psycopg2-binary \
+        patroni[zookeeper] && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/opt/patroni-venv/bin:$PATH"
+
+COPY --chown=postgres:postgres postgres*.yml /
+
+USER postgres

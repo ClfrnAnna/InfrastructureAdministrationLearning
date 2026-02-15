@@ -8,6 +8,7 @@
 !README*
 !*.conf
 !Dockerfile.healthchecker
+!*.yml
 
 .git/
 .gitignore
