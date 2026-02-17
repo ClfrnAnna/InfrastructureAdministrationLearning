@@ -4,6 +4,6 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir requests
 
-COPY health_checker_app.py .
+COPY app/health_checker_app.py .
 
 CMD ["python", "health_checker_app.py"]

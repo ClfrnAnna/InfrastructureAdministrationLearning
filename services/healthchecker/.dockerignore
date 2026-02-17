@@ -1,0 +1,6 @@
+*
+!Dockerfile.healthchecker
+!requirements.txt
+!app/
+!app/health_checker_app.py
+!.dockerignore

@@ -2,7 +2,7 @@ FROM python:3.11-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    curl\
+    curl \
     python3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -11,19 +11,14 @@ WORKDIR /tmp/build
 
 COPY requirements.txt .
 
-RUN python -m venv /opt/venv
-
-ENV PATH="/opt/venv/bin:$PATH"
-
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-RUN pip list --format=freeze
-
 FROM python:3.11-slim AS runtime
 
 ARG BUILD_DATE
+ARG APP_VERSION
 
 LABEL maintainer="Anna Zaitseva" \
       version="${APP_VERSION}" \
@@ -37,7 +32,7 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 
-COPY --chown=appuser:appuser main.py ./
+COPY --chown=appuser:appuser app/main.py ./
 
 USER appuser
 

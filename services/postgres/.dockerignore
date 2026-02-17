@@ -1,0 +1,6 @@
+*
+!Dockerfile.postgres
+!patroni/
+!patroni/postgres0.yml
+!patroni/postgres1.yml
+!.dockerignore

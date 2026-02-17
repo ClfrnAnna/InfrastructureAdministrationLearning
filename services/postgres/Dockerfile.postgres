@@ -16,6 +16,6 @@ RUN apt-get update -y && \
 
 ENV PATH="/opt/patroni-venv/bin:$PATH"
 
-COPY --chown=postgres:postgres postgres*.yml /
+COPY --chown=postgres:postgres patroni/postgres*.yml /
 
 USER postgres
