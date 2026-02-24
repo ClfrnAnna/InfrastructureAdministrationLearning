@@ -1,0 +1,6 @@
+*
+!Dockerfile.processor
+!requirements.txt
+!app/
+!app/order_processor.py
+!.dockerignore

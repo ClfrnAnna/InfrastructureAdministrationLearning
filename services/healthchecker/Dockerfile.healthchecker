@@ -6,4 +6,7 @@ RUN pip install --no-cache-dir requests
 
 COPY app/health_checker_app.py .
 
+RUN adduser -D appuser && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python", "health_checker_app.py"]

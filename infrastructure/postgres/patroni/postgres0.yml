@@ -2,7 +2,7 @@ scope: my_cluster # Имя нашего кластера
 name: postgresql0 # Имя первой ноды
 
 restapi: # Адреса первой ноды
-  listen: pg-master:8008
+  listen: 0.0.0.0:8008
   connect_address: pg-master:8008
 
 zookeeper:
@@ -15,7 +15,7 @@ bootstrap:
     loop_wait: 10
     retry_timeout: 10
     maximum_lag_on_failover: 10485760
-    master_start_timeout: 3600
+    master_start_timeout: 300
     synchronous_mode: true
     postgresql:
       use_pg_rewind: true
@@ -23,7 +23,7 @@ bootstrap:
       parameters:
         wal_level: replica
         hot_standby: "on"
-        wal_keep_segments: 8
+        wal_keep_size: 64MB
         max_wal_senders: 10
         max_replication_slots: 10
         wal_log_hints: "on"

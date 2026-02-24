@@ -1,0 +1,194 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: rabbitmq-container
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - fastapi-net-1
+      - fastapi-net-2
+      - order-processor-net
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-container
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - fastapi-net-1
+      - fastapi-net-2
+      - order-processor-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ./infrastructure/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  pg-master:
+    build:
+      context: ./infrastructure/postgres
+      dockerfile: Dockerfile.postgres
+    image: local-postgres:patroni
+    container_name: pg-master
+    hostname: pg-master
+    env_file:
+      - .env
+    expose:
+      - 8008
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-master:/var/lib/postgresql/data
+    networks:
+      - order-processor-net
+    command: patroni /postgres0.yml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      zoo:
+        condition: service_healthy
+
+  pg-slave:
+    build:
+      context: ./infrastructure/postgres
+      dockerfile: Dockerfile.postgres
+    image: local-postgres:patroni
+    container_name: pg-slave
+    hostname: pg-slave
+    env_file:
+      - .env
+    expose:
+      - 8008
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg-slave:/var/lib/postgresql/data
+    networks:
+      - order-processor-net
+    command: patroni /postgres1.yml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      zoo:
+        condition: service_healthy
+
+  zoo:
+    image: confluentinc/cp-zookeeper:7.7.1
+    container_name: zoo
+    hostname: zoo
+    env_file:
+      - .env
+    ports:
+      - "2181:2181"
+    networks:
+      - order-processor-net
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT:-2181}
+    volumes:
+      - zoo-data:/var/lib/zookeeper/data
+      - zoo-log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  haproxy:
+    image: haproxy:3.0
+    container_name: api-gateway
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+      - "7000:7000"
+      - "8000:8000"
+      - "8001:8001"
+    volumes:
+      - ./infrastructure/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - fastapi-net-1
+      - fastapi-net-2
+      - order-processor-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg", "-c"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      zoo:
+        condition: service_healthy
+      pg-master:
+        condition: service_healthy
+      pg-slave:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    env_file:
+      - .env
+    ports:
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - order-processor-net
+    command: server /data --console-address ":9001"
+
+volumes:
+  rabbitmq-data:
+    driver: local
+  redis-data:
+    driver: local
+  pg-master:
+    driver: local
+  pg-slave:
+    driver: local
+  zoo-data:
+    driver: local
+  zoo-log:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  fastapi-net-1:
+    name: fastapi-net-1
+    driver: bridge
+  fastapi-net-2:
+    name: fastapi-net-2
+    driver: bridge
+  order-processor-net:
+    name: order-processor-net
+    driver: bridge

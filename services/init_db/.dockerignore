@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!requirements.txt
+!app/
+!app/init_db.py
+!.dockerignore

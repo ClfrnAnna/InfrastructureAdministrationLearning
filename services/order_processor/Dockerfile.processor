@@ -1,0 +1,20 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev postgresql-dev
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN apk del .build-deps && \
+    apk add --no-cache libpq
+
+COPY app/order_processor.py .
+
+RUN adduser -D appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+CMD ["uvicorn", "order_processor:app", "--host", "0.0.0.0", "--port", "8000"]
