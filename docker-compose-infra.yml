@@ -184,11 +184,8 @@ volumes:
 
 networks:
   fastapi-net-1:
-    name: fastapi-net-1
     driver: bridge
   fastapi-net-2:
-    name: fastapi-net-2
     driver: bridge
   order-processor-net:
-    name: order-processor-net
     driver: bridge

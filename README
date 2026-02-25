@@ -1,1 +1,10 @@
+Starting:
+
 docker-compose -f docker-compose-infra.yml -f docker-compose.yml up -d
+
+Testing for PowerShell:
+
+$orderId = (Invoke-RestMethod -Uri "http://localhost:8003/order/create" -Method Post -Body "Test order" -ContentType "text/plain").order_id
+Start-Sleep -Seconds 3
+$order = Invoke-RestMethod -Uri "http://localhost:8003/order/$orderId"
+$order | Format-List

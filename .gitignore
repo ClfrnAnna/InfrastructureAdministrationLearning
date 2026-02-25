@@ -1,31 +1,35 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
+# Virtual environments
 venv/
 env/
 .venv/
 
-.env
+# Environment files
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
 
+# Docker
 docker-compose.override.yml
 .docker/
 docker-data/
 
+# Logs
 *.log
 logs/
 
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -34,30 +38,34 @@ logs/
 ehthumbs.db
 Thumbs.db
 
+# Application data directories
 data/
 api_logs/
 postgres_data/
 pgadmin_data/
 app_data/
 
+# Coverage reports
 .coverage
 htmlcov/
 
+# Build artifacts
 *.manifest
 *.spec
 
+# Pip logs
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Pytest cache
 .pytest_cache/
 .mypy_cache/
 .tox/
 
+# Jupyter Notebook
 .ipynb_checkpoints
 
-.idea/
-
-.vscode/
-
+# Temporary files
 *~
 *.swp
+*.swo

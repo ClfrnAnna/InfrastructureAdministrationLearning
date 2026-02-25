@@ -96,25 +96,29 @@ services:
       - "8000"
     env_file:
       - .env
+#    environment:
+#      ORDERS_DB_HOST: pg-master
     networks:
       - order-processor-net
     stdin_open: true
     tty: true
+    command: ["sleep", "infinity"]
+#    command: ["uvicorn", "order_processor:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/docs" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      haproxy:
-        condition: service_healthy
-      init-db:
-        condition: service_completed_successfully
-      init-minio:
-        condition: service_completed_successfully
+        test: [ "CMD", "curl", "-f", "http://localhost:8000/docs" ]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 40s
+#    depends_on:
+#      rabbitmq:
+#        condition: service_healthy
+#      haproxy:
+#        condition: service_healthy
+#      init-db:
+#        condition: service_completed_successfully
+#      init-minio:
+#        condition: service_completed_successfully
 
   init-db:
     build:

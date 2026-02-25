@@ -28,13 +28,18 @@ db_pool = None
 
 
 async def get_db_pool():
-    return await asyncpg.create_pool(host=os.getenv("ORDERS_DB_HOST"),
-                                     port=os.getenv("ORDERS_DB_PORT"),
-                                     user=os.getenv("ORDERS_DB_USER"),
-                                     password=os.getenv("ORDERS_DB_PASSWORD"),
-                                     database=os.getenv("ORDERS_DB_NAME"),
-                                     min_size=1,
-                                     max_size=10)
+    return await asyncpg.create_pool(
+        host=os.getenv("ORDERS_DB_HOST"),
+        port=os.getenv("ORDERS_DB_PORT"),
+        user=os.getenv("ORDERS_DB_USER"),
+        password=os.getenv("ORDERS_DB_PASSWORD"),
+        database=os.getenv("ORDERS_DB_NAME"),
+        min_size=1,
+        max_size=10,
+        ssl=False,
+        timeout=10,
+        command_timeout=30
+    )
 
 
 def save_log_to_s3(order_id: int, message: str):
@@ -48,8 +53,8 @@ def save_log_to_s3(order_id: int, message: str):
             existing_content = response.read()
             response.close()
             response.release_conn()
-        except:
-            logger.debug(f"No existing log file or error reading: {e}")
+        except Exception as read_err:
+            logger.debug(f"No existing log file or error reading: {read_err}")
 
         log_line = f"[{datetime.now().strftime('%H:%M:%S')}] Order {order_id}: {message}\n"
         new_content = existing_content + log_line.encode('utf-8')
@@ -98,13 +103,11 @@ async def process_message(message: aio_pika.IncomingMessage):
         order_id = data['id']
         description = data['description']
         logger.info(f"Processing message for order {order_id}: {description}")
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
+        async with db_pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO orders (id, status, description) VALUES ($1, 'created', $2)",
                 order_id, description)
             logger.info(f"Processing message for order {order_id}: {description}")
-
         asyncio.create_task(asyncio.to_thread(save_log_to_s3, order_id, f"Order {order_id} created: {description}"))
 
 
@@ -112,6 +115,7 @@ async def process_message(message: aio_pika.IncomingMessage):
 async def startup():
     global redis_client, db_pool
     logger.info("Starting up order-processor...")
+    logger.info(f"DB params: host={os.getenv('ORDERS_DB_HOST')}, port={os.getenv('ORDERS_DB_PORT')}, db={os.getenv('ORDERS_DB_NAME')}, user={os.getenv('ORDERS_DB_USER')}")
     redis_client = aioredis.from_url(
         f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', 6379)}",
         password=os.getenv('REDIS_PASSWORD'),
@@ -119,7 +123,10 @@ async def startup():
     await redis_client.ping()
     logger.info("Redis connection established")
     db_pool = await get_db_pool()
-    logger.info("Redis connection established")
+    async with db_pool.acquire() as conn:
+        await conn.execute("SELECT 1")
+    logger.info("Database connection established")
+
     asyncio.create_task(consume_queue())
     logger.info("Startup complete")
 
@@ -140,7 +147,6 @@ async def consume_queue():
         host=os.getenv("RMQ_HOST", "rabbitmq"),
         login=os.getenv("RMQ_USER", "admin"),
         password=os.getenv("RMQ_PASSWORD", "admin"))
-    logger.info("Redis connection closed")
 
     channel = await connection.channel()
     queue = await channel.declare_queue(
