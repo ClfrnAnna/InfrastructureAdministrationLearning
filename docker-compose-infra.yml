@@ -6,9 +6,9 @@ services:
     env_file:
       - .env
     networks:
-      - fastapi-net-1
-      - fastapi-net-2
-      - order-processor-net
+      - rabbitmq-network
+      - app1-network
+      - app2-network
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
       interval: 30s
@@ -29,9 +29,9 @@ services:
     env_file:
       - .env
     networks:
-      - fastapi-net-1
-      - fastapi-net-2
-      - order-processor-net
+      - rabbitmq-network
+      - app1-network
+      - app2-network
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
       interval: 30s
@@ -39,10 +39,10 @@ services:
       retries: 3
       start_period: 30s
     volumes:
-      - ./infrastructure/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis-data:/data
     ports:
       - "6379:6379"
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
 
   pg-master:
     build:
@@ -60,7 +60,7 @@ services:
     volumes:
       - pg-master:/var/lib/postgresql/data
     networks:
-      - order-processor-net
+      - postgres-cluster
     command: patroni /postgres0.yml
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
@@ -68,9 +68,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
-    depends_on:
-      zoo:
-        condition: service_healthy
 
   pg-slave:
     build:
@@ -88,7 +85,7 @@ services:
     volumes:
       - pg-slave:/var/lib/postgresql/data
     networks:
-      - order-processor-net
+      - postgres-cluster
     command: patroni /postgres1.yml
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
@@ -96,25 +93,17 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
-    depends_on:
-      zoo:
-        condition: service_healthy
 
   zoo:
     image: confluentinc/cp-zookeeper:7.7.1
     container_name: zoo
     hostname: zoo
-    env_file:
-      - .env
     ports:
       - "2181:2181"
     networks:
-      - order-processor-net
+      - postgres-cluster
     environment:
       ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT:-2181}
-    volumes:
-      - zoo-data:/var/lib/zookeeper/data
-      - zoo-log:/var/lib/zookeeper/log
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 10s
@@ -125,67 +114,66 @@ services:
   haproxy:
     image: haproxy:3.0
     container_name: api-gateway
-    env_file:
-      - .env
     ports:
-      - "5432:5432"
+      - "5432:5432"   # write
+      - "5435:5433"   # read
       - "7000:7000"
       - "8000:8000"
-      - "8001:8001"
+    depends_on:
+      pg-master:
+        condition: service_started
+      pg-slave:
+        condition: service_started
+      zoo:
+        condition: service_healthy
     volumes:
-      - ./infrastructure/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./infrastructure/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
     networks:
-      - fastapi-net-1
-      - fastapi-net-2
-      - order-processor-net
+      - postgres-cluster
+      - app1-network
+      - app2-network
     restart: always
     healthcheck:
-      test: ["CMD", "haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg", "-c"]
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    depends_on:
-      zoo:
-        condition: service_healthy
-      pg-master:
-        condition: service_healthy
-      pg-slave:
-        condition: service_healthy
+      start_period: 20s
 
   minio:
-    image: minio/minio
-    container_name: minio
+    image: minio/minio:latest
+    container_name: minio-container
+    command: server /data --console-address ":9001"
     env_file:
       - .env
     ports:
+      - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - minio-data:/data
     networks:
-      - order-processor-net
-    command: server /data --console-address ":9001"
+      - app1-network
+      - app2-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 20s
 
 volumes:
   rabbitmq-data:
-    driver: local
   redis-data:
-    driver: local
   pg-master:
-    driver: local
   pg-slave:
-    driver: local
-  zoo-data:
-    driver: local
-  zoo-log:
-    driver: local
-  minio_data:
-    driver: local
+  minio-data:
 
 networks:
-  fastapi-net-1:
+  rabbitmq-network:
     driver: bridge
-  fastapi-net-2:
+  app1-network:
     driver: bridge
-  order-processor-net:
+  app2-network:
+    driver: bridge
+  postgres-cluster:
     driver: bridge

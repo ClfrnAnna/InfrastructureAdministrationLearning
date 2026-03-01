@@ -4,6 +4,19 @@ import asyncpg
 import sys
 
 
+async def wait_for_db(host, port, user, password, database, retries=30, delay=2):
+    for i in range(retries):
+        try:
+            conn = await asyncpg.connect(host=host, port=port, user=user, password=password, database=database)
+            await conn.close()
+            print(f"Database '{database}' is ready!")
+            return
+        except Exception as e:
+            print(f"Attempt {i + 1}/{retries}: DB not ready yet - {e}")
+            await asyncio.sleep(delay)
+    raise Exception(f"Could not connect to database '{database}' after {retries} attempts")
+
+
 async def create_tables(conn):
     await conn.execute('''
         CREATE TABLE IF NOT EXISTS orders (
@@ -22,12 +35,9 @@ async def main():
     password = os.getenv('ORDERS_DB_PASSWORD', 'postgres')
     database = os.getenv('ORDERS_DB_NAME', 'orders_db')
 
-    admin_conn = await asyncpg.connect(host=host,
-                                       port=port,
-                                       user=user,
-                                       password=password,
-                                       database='postgres')
+    await wait_for_db(host, port, user, password, 'postgres')
 
+    admin_conn = await asyncpg.connect(host=host, port=port, user=user, password=password, database='postgres')
     db_exists = await admin_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", database)
     if not db_exists:
         print(f"Creating database '{database}'...")
@@ -35,13 +45,8 @@ async def main():
     else:
         print(f"Database '{database}' already exists.")
     await admin_conn.close()
-
-    db_conn = await asyncpg.connect(host=host,
-                                    port=port,
-                                    user=user,
-                                    password=password,
-                                    database=database)
-
+    await wait_for_db(host, port, user, password, database)
+    db_conn = await asyncpg.connect(host=host, port=port, user=user, password=password, database=database)
     await create_tables(db_conn)
     await db_conn.close()
     print("Database initialization completed successfully.")

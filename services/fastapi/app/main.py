@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Response, HTTPException
 import aio_pika
-from redis.asyncio import Redis
+from redis import asyncio as aioredis
 import json
 import os
 import random
@@ -10,7 +10,12 @@ processor_url = os.getenv('PROCESSOR_URL')
 rmq_queue = os.getenv('RABBITMQ_QUEUE', 'orders_queue')
 redis_queue = os.getenv('REDIS_QUEUE', 'my_redis_queue')
 
-r = Redis(host=os.getenv('REDIS_HOST', 'redis'), port=6379, decode_responses=True)
+r = aioredis.Redis(
+    host=os.getenv('REDIS_HOST', 'redis'),
+    port=6379,
+    password=os.getenv('REDIS_PASSWORD'),
+    decode_responses=True
+)
 
 app = FastAPI()
 
@@ -22,12 +27,17 @@ def read_root():
 
 @app.get("/healthy")
 async def healthy(response: Response):
+    redis_status = "nok"
+    rabbit_status = "nok"
+
+    # Проверка Redis
     try:
         await r.ping()
         redis_status = "ok"
-    except Exception:
-        redis_status = "nok"
+    except Exception as e:
+        print(f"❌ Redis error in /healthy: {e}")
 
+    # Проверка RabbitMQ
     try:
         connection = await aio_pika.connect_robust(
             f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/",
@@ -35,12 +45,11 @@ async def healthy(response: Response):
         )
         await connection.close()
         rabbit_status = "ok"
-    except Exception:
-        rabbit_status = "nok"
+    except Exception as e:
+        print(f"❌ RabbitMQ error in /healthy: {e}")
 
     if redis_status != "ok" or rabbit_status != "ok":
         response.status_code = 503
-
     return {
         "redis": redis_status,
         "rabbitmq": rabbit_status
@@ -69,14 +78,18 @@ async def create_order(request: Request):
                 routing_key=rmq_queue
             )
     except Exception as e:
-        raise HTTPException(status_code=503, detail="Message broker unavailable")
+        print(f"❌ RabbitMQ error in /order/create: {e}")
+        raise HTTPException(status_code=503, detail="RabbitMQ unavailable")
 
     return {"order_id": order_id}
 
 
 @app.get("/order/{order_id}")
 async def get_order(order_id: int):
-    async with httpx.AsyncClient() as client:
+    if not processor_url:
+        raise HTTPException(status_code=500, detail="Processor URL not configured")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.get(f"{processor_url}/order/{order_id}")
             response.raise_for_status()
@@ -85,5 +98,6 @@ async def get_order(order_id: int):
             if e.response.status_code == 404:
                 raise HTTPException(status_code=404, detail="Order not found")
             raise HTTPException(status_code=503, detail="Processor unavailable")
-        except Exception:
+        except Exception as e:
+            print(f"❌ Error in /order/{order_id}: {e}")
             raise HTTPException(status_code=503, detail="Processor unavailable")

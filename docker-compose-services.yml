@@ -1,0 +1,120 @@
+services:
+  fastapi-app1:
+    build:
+      context: ./services/fastapi
+      dockerfile: Dockerfile
+      args:
+        - APP_VERSION=${APP_VERSION}
+    image: fastapi-app:${APP_VERSION}
+    container_name: fastapi-app1-container
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - app1-data:/app/data:rw
+    networks:
+      - app1-network
+    environment:
+      - APP_INSTANCE=1
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  fastapi-app2:
+    build:
+      context: ./services/fastapi
+      dockerfile: Dockerfile
+      args:
+        - APP_VERSION=${APP_VERSION}
+    image: fastapi-app:${APP_VERSION}
+    container_name: fastapi-app2-container
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - app2-data:/app/data:rw
+    networks:
+      - app2-network
+    environment:
+      - APP_INSTANCE=2
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  order-processor:
+    build:
+      context: ./services/order_processor
+      dockerfile: Dockerfile.processor
+    image: order-processor:${APP_VERSION}
+    container_name: order-processor-container
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - app1-network
+      - app2-network
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  health-checker-app:
+    build:
+      context: ./services/healthchecker
+      dockerfile: Dockerfile.healthchecker
+    image: health-checker:${APP_VERSION}
+    container_name: health-checker-app-container
+    restart: on-failure:5
+    env_file:
+      - .env
+    networks:
+      - app1-network
+      - app2-network
+    stdin_open: true
+    tty: true
+
+  init-db:
+    build:
+      context: ./services/init_db
+      dockerfile: Dockerfile
+    image: init-db:${APP_VERSION}
+    container_name: init-db-container
+    env_file:
+      - .env
+    networks:
+      - app1-network
+    restart: "no"
+
+  init-minio:
+    build:
+      context: ./services/init_minio
+      dockerfile: Dockerfile
+    image: init-minio:${APP_VERSION}
+    container_name: init-minio-container
+    env_file:
+      - .env
+    networks:
+      - app1-network
+    restart: "no"
+
+volumes:
+  app1-data:
+  app2-data:
+
+networks:
+  app1-network:
+    external: true
+  app2-network:
+    external: true

@@ -1,7 +1,21 @@
 import os
 import sys
+import time
 from minio import Minio
 from minio.error import S3Error
+
+
+def wait_for_minio(endpoint, access_key, secret_key, secure=False, retries=30, delay=2):
+    for i in range(retries):
+        try:
+            client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+            client.list_buckets()
+            print("MinIO is ready!")
+            return client
+        except Exception as e:
+            print(f"Attempt {i + 1}/{retries}: MinIO not ready yet - {e}")
+            time.sleep(delay)
+    raise Exception(f"Could not connect to MinIO after {retries} attempts")
 
 
 def main():
@@ -12,23 +26,17 @@ def main():
     secure = False
 
     print(f"Connecting to MinIO at {endpoint} ...")
-    client = Minio(endpoint,
-                   access_key=access_key,
-                   secret_key=secret_key,
-                   secure=secure)
-
+    client = wait_for_minio(endpoint, access_key, secret_key, secure)
+    found = False
     try:
         buckets = client.list_buckets()
-        print("MinIO connection successful.")
+        for bucket in buckets:
+            if bucket.name == bucket_name:
+                found = True
+                break
     except S3Error as e:
-        print(f"MinIO connection failed: {e}")
+        print(f"Failed to list buckets: {e}")
         sys.exit(1)
-
-    found = False
-    for bucket in buckets:
-        if bucket.name == bucket_name:
-            found = True
-            break
 
     if not found:
         print(f"Creating bucket '{bucket_name}' ...")

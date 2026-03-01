@@ -2,5 +2,5 @@
 !Dockerfile
 !requirements.txt
 !app/
-!app/init_minio.py.py
+!app/init_minio.py
 !.dockerignore

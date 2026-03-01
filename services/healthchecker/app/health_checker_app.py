@@ -21,7 +21,7 @@ def main():
         print(f"\nCheck #{check_count} - {time.ctime()}")
         try:
             resp1 = requests.get(f"{APP1_URL}/healthy", timeout=5)
-            print(f"App1: HTTP {resp1.status_code} - {resp1.json().get('status', 'unknown')}")
+            print(f"App1: HTTP {resp1.status_code} - {resp1.json()}")
             status1 = resp1.status_code
         except Exception as e:
             print(f"App1: ERROR - {e}")
@@ -29,7 +29,7 @@ def main():
 
         try:
             resp2 = requests.get(f"{APP2_URL}/healthy", timeout=5)
-            print(f"App2: HTTP {resp2.status_code} - {resp2.json().get('status', 'unknown')}")
+            print(f"App2: HTTP {resp2.status_code} - {resp2.json()}")
             status2 = resp2.status_code
         except Exception as e:
             print(f"App2: ERROR - {e}")
