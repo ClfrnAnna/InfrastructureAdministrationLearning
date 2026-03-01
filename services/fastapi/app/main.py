@@ -10,12 +10,10 @@ processor_url = os.getenv('PROCESSOR_URL')
 rmq_queue = os.getenv('RABBITMQ_QUEUE', 'orders_queue')
 redis_queue = os.getenv('REDIS_QUEUE', 'my_redis_queue')
 
-r = aioredis.Redis(
-    host=os.getenv('REDIS_HOST', 'redis'),
-    port=6379,
-    password=os.getenv('REDIS_PASSWORD'),
-    decode_responses=True
-)
+r = aioredis.Redis(host=os.getenv('REDIS_HOST', 'redis'),
+                   port=6379,
+                   password=os.getenv('REDIS_PASSWORD'),
+                   decode_responses=True)
 
 app = FastAPI()
 
@@ -29,31 +27,23 @@ def read_root():
 async def healthy(response: Response):
     redis_status = "nok"
     rabbit_status = "nok"
-
-    # Проверка Redis
     try:
         await r.ping()
         redis_status = "ok"
     except Exception as e:
-        print(f"❌ Redis error in /healthy: {e}")
-
-    # Проверка RabbitMQ
+        print(f"Redis error in /healthy: {e}")
     try:
         connection = await aio_pika.connect_robust(
-            f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/",
-            timeout=5
-        )
+            f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/", timeout=5)
         await connection.close()
         rabbit_status = "ok"
     except Exception as e:
-        print(f"❌ RabbitMQ error in /healthy: {e}")
+        print(f"RabbitMQ error in /healthy: {e}")
 
     if redis_status != "ok" or rabbit_status != "ok":
         response.status_code = 503
-    return {
-        "redis": redis_status,
-        "rabbitmq": rabbit_status
-    }
+    return {"redis": redis_status,
+            "rabbitmq": rabbit_status}
 
 
 @app.post("/order/create", status_code=201)
@@ -61,24 +51,19 @@ async def create_order(request: Request):
     description = (await request.body()).decode('utf-8')
     order_id = random.randint(1, 9999)
 
-    message = json.dumps({
-        "id": order_id,
-        "description": description
-    })
+    message = json.dumps({"id": order_id,
+                          "description": description})
 
     try:
-        connection = await aio_pika.connect_robust(
-            f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/"
-        )
+        connection = await aio_pika.connect_robust(f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/")
         async with connection:
             channel = await connection.channel()
             await channel.declare_queue(rmq_queue, durable=True)
             await channel.default_exchange.publish(
                 aio_pika.Message(body=message.encode()),
-                routing_key=rmq_queue
-            )
+                routing_key=rmq_queue)
     except Exception as e:
-        print(f"❌ RabbitMQ error in /order/create: {e}")
+        print(f"RabbitMQ error in /order/create: {e}")
         raise HTTPException(status_code=503, detail="RabbitMQ unavailable")
 
     return {"order_id": order_id}
@@ -99,5 +84,5 @@ async def get_order(order_id: int):
                 raise HTTPException(status_code=404, detail="Order not found")
             raise HTTPException(status_code=503, detail="Processor unavailable")
         except Exception as e:
-            print(f"❌ Error in /order/{order_id}: {e}")
+            print(f"Error in /order/{order_id}: {e}")
             raise HTTPException(status_code=503, detail="Processor unavailable")

@@ -17,7 +17,6 @@ RUN python -m venv /opt/venv && \
 
 FROM python:3.11-slim AS runtime
 
-# Добавляем curl для healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 ARG BUILD_DATE

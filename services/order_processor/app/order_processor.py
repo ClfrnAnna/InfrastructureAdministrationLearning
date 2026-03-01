@@ -14,22 +14,18 @@ app = FastAPI()
 logger = logging.getLogger("order-processor")
 logging.basicConfig(level=logging.INFO)
 
-# MinIO
 minio_client = Minio(
     os.getenv("MINIO_ENDPOINT", "minio:9000"),
     access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
     secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-    secure=False
-)
+    secure=False)
 s3_bucket = os.getenv("MINIO_BUCKET", "order-logs")
 
-# Redis
 redis_client = redis.Redis(
     host=os.getenv('REDIS_HOST', 'redis'),
     port=int(os.getenv('REDIS_PORT', 6379)),
     password=os.getenv('REDIS_PASSWORD'),
-    decode_responses=True
-)
+    decode_responses=True)
 
 DB_HOST = os.getenv("ORDERS_DB_HOST", "haproxy")
 DB_WRITE_PORT = int(os.getenv("ORDERS_DB_WRITE_PORT", 5432))
@@ -53,8 +49,7 @@ async def init_db_pools(retries=60, delay=2):
                 password=DB_PASSWORD,
                 database=DB_NAME,
                 min_size=1,
-                max_size=5
-            )
+                max_size=5)
             read_pool = await asyncpg.create_pool(
                 host=DB_HOST,
                 port=DB_READ_PORT,
@@ -62,8 +57,7 @@ async def init_db_pools(retries=60, delay=2):
                 password=DB_PASSWORD,
                 database=DB_NAME,
                 min_size=1,
-                max_size=10
-            )
+                max_size=10)
             logger.info("Database pools created (write/read)")
             return
         except Exception as e:
@@ -96,9 +90,7 @@ def save_log_to_s3(order_id: int, message: str):
 
         log_line = f"[{datetime.now().strftime('%H:%M:%S')}] Order {order_id}: {message}\n"
         new_content = existing_content + log_line.encode('utf-8')
-        minio_client.put_object(
-            s3_bucket, filename, BytesIO(new_content), len(new_content)
-        )
+        minio_client.put_object(s3_bucket, filename, BytesIO(new_content), len(new_content))
     except Exception as e:
         logger.error(f"S3 upload failed: {e}")
 
@@ -114,8 +106,7 @@ async def get_order(order_id: int):
     async with read_pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT id, status, description FROM orders WHERE id = $1",
-            order_id
-        )
+            order_id)
 
     if not row:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -123,8 +114,7 @@ async def get_order(order_id: int):
     result = {
         "id": row['id'],
         "status": row['status'],
-        "description": row['description']
-    }
+        "description": row['description']}
     await redis_client.setex(cache_key, int(os.getenv("REDIS_CACHE_TTL", 60)), json.dumps(result))
     save_log_to_s3(order_id, f"Status requested - current status: {row['status']}")
     return result
@@ -139,15 +129,13 @@ async def process_message(message: aio_pika.IncomingMessage):
         async with write_pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO orders (id, status, description) VALUES ($1, 'created', $2)",
-                order_id, description
-            )
+                order_id, description)
 
         cache_key = f"order:{order_id}:data"
         await redis_client.setex(cache_key, int(os.getenv("REDIS_CACHE_TTL", 60)), json.dumps({
             "id": order_id,
             "status": "created",
-            "description": description
-        }))
+            "description": description}))
 
         save_log_to_s3(order_id, f"Order created: {description}")
 
