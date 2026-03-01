@@ -123,6 +123,29 @@ services:
       - app1-network
     restart: "no"
 
+  my-service:
+    build:
+      context: ./services/my_service
+      dockerfile: Dockerfile
+    container_name: my-service-container
+    restart: always
+    env_file:
+      - .env
+      - .env.services
+    environment:
+      - CONTAINER_NAME=my-service-container
+    volumes:
+      - ./logs:/app/log:rw
+    networks:
+      - app1-network
+      - app2-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep python.*app.py || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   fluentd:
     build:
       context: ./infrastructure/fluent
