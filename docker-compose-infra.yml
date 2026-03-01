@@ -102,8 +102,9 @@ services:
       - "2181:2181"
     networks:
       - postgres-cluster
-    environment:
-      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT:-2181}
+    env_file:
+      - .env
+      - .env.infra
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 10s
@@ -161,12 +162,53 @@ services:
       retries: 3
       start_period: 20s
 
+  opensearch:
+    image: opensearchproject/opensearch:2.11.1
+    container_name: opensearch
+    env_file:
+      - .env.infra
+    ports:
+      - "9200:9200"
+    expose:
+      - "9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - logging-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9200" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+
+  fake-kibana:
+    image: opensearchproject/opensearch-dashboards:2.11.1
+    container_name: fake-kibana
+    ports:
+      - "5601:5601"
+    env_file:
+      - .env.infra
+    depends_on:
+      - opensearch
+    networks:
+      - logging-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5601/api/status" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 volumes:
   rabbitmq-data:
   redis-data:
   pg-master:
   pg-slave:
   minio-data:
+  opensearch-data:
 
 networks:
   rabbitmq-network:
@@ -176,4 +218,6 @@ networks:
   app2-network:
     driver: bridge
   postgres-cluster:
+    driver: bridge
+  logging-network:
     driver: bridge

@@ -9,10 +9,25 @@ from minio import Minio
 from io import BytesIO
 import redis.asyncio as redis
 import logging
+import socket
+from pythonjsonlogger import jsonlogger
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+log_formatter = jsonlogger.JsonFormatter('%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s',timestamp=True)
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+logger.addHandler(console_handler)
+log_dir = 'log/processor'
+os.makedirs(log_dir, exist_ok=True)
+json_handler = logging.FileHandler('log/processor/gateway.log')
+json_handler.setFormatter(log_formatter)
+logger.addHandler(json_handler)
+
+hostname = socket.gethostname()
 
 app = FastAPI()
-logger = logging.getLogger("order-processor")
-logging.basicConfig(level=logging.INFO)
 
 minio_client = Minio(
     os.getenv("MINIO_ENDPOINT", "minio:9000"),
@@ -58,10 +73,12 @@ async def init_db_pools(retries=60, delay=2):
                 database=DB_NAME,
                 min_size=1,
                 max_size=10)
-            logger.info("Database pools created (write/read)")
+            logger.info("Database pools created (write/read)", extra={'hostname': hostname})
             return
         except Exception as e:
-            logger.warning(f"DB pools init attempt {i+1}/{retries} failed: {e}")
+            logger.warning(
+                f"DB pools init attempt {i + 1}/{retries} failed: {e}",
+                extra={'hostname': hostname})
             await asyncio.sleep(delay)
     raise Exception("Could not create DB pools after multiple attempts")
 
@@ -71,7 +88,7 @@ async def close_db_pools():
         await write_pool.close()
     if read_pool:
         await read_pool.close()
-    logger.info("Database pools closed")
+    logger.info("Database pools closed", extra={'hostname': hostname})
 
 
 def save_log_to_s3(order_id: int, message: str):
@@ -90,17 +107,21 @@ def save_log_to_s3(order_id: int, message: str):
 
         log_line = f"[{datetime.now().strftime('%H:%M:%S')}] Order {order_id}: {message}\n"
         new_content = existing_content + log_line.encode('utf-8')
-        minio_client.put_object(s3_bucket, filename, BytesIO(new_content), len(new_content))
+
+        minio_client.put_object(
+            s3_bucket, filename, BytesIO(new_content), len(new_content))
     except Exception as e:
-        logger.error(f"S3 upload failed: {e}")
+        logger.error(f"S3 upload failed: {e}", extra={'hostname': hostname})
 
 
 @app.get("/order/{order_id}")
 async def get_order(order_id: int):
+    logger.info(f"Requesting order {order_id} status...", extra={'hostname': hostname})
+
     cache_key = f"order:{order_id}:data"
     cached = await redis_client.get(cache_key)
     if cached:
-        logger.info(f"Cache hit for order {order_id}")
+        logger.info(f"Cache hit for order {order_id}", extra={'hostname': hostname})
         return json.loads(cached)
 
     async with read_pool.acquire() as conn:
@@ -109,14 +130,20 @@ async def get_order(order_id: int):
             order_id)
 
     if not row:
+        logger.error(f"Order {order_id} not found", extra={'hostname': hostname})
         raise HTTPException(status_code=404, detail="Order not found")
 
     result = {
         "id": row['id'],
         "status": row['status'],
-        "description": row['description']}
+        "description": row['description']
+    }
+
     await redis_client.setex(cache_key, int(os.getenv("REDIS_CACHE_TTL", 60)), json.dumps(result))
+
     save_log_to_s3(order_id, f"Status requested - current status: {row['status']}")
+
+    logger.info(f"Order {order_id} status retrieved", extra={'hostname': hostname})
     return result
 
 
@@ -130,7 +157,6 @@ async def process_message(message: aio_pika.IncomingMessage):
             await conn.execute(
                 "INSERT INTO orders (id, status, description) VALUES ($1, 'created', $2)",
                 order_id, description)
-
         cache_key = f"order:{order_id}:data"
         await redis_client.setex(cache_key, int(os.getenv("REDIS_CACHE_TTL", 60)), json.dumps({
             "id": order_id,
@@ -138,6 +164,8 @@ async def process_message(message: aio_pika.IncomingMessage):
             "description": description}))
 
         save_log_to_s3(order_id, f"Order created: {description}")
+
+        logger.info(f"Order {order_id} created", extra={'hostname': hostname})
 
 
 async def consume_queue(retries=30, delay=2):
@@ -151,10 +179,13 @@ async def consume_queue(retries=30, delay=2):
                 os.getenv("RMQ_QUEUE", "orders_queue"), durable=True
             )
             await queue.consume(process_message)
-            logger.info("Connected to RabbitMQ, waiting for messages...")
+            logger.info("Connected to RabbitMQ, waiting for messages...", extra={'hostname': hostname})
             return
         except Exception as e:
-            logger.warning(f"RabbitMQ connection attempt {i+1}/{retries} failed: {e}")
+            logger.warning(
+                f"RabbitMQ connection attempt {i + 1}/{retries} failed: {e}",
+                extra={'hostname': hostname}
+            )
             await asyncio.sleep(delay)
     raise Exception("Could not connect to RabbitMQ after multiple attempts")
 
@@ -163,7 +194,6 @@ async def consume_queue(retries=30, delay=2):
 async def startup():
     await init_db_pools()
     asyncio.create_task(consume_queue())
-    logger.info("Order processor started")
 
 
 @app.on_event("shutdown")
@@ -175,22 +205,27 @@ async def shutdown():
 @app.get("/healthy")
 async def healthy():
     status = {"redis": "ok", "postgres_write": "ok", "postgres_read": "ok", "minio": "ok"}
+
     try:
         await redis_client.ping()
     except Exception:
         status["redis"] = "nok"
+
     try:
         async with write_pool.acquire() as conn:
             await conn.execute("SELECT 1")
     except Exception:
         status["postgres_write"] = "nok"
+
     try:
         async with read_pool.acquire() as conn:
             await conn.execute("SELECT 1")
     except Exception:
         status["postgres_read"] = "nok"
+
     try:
         minio_client.list_buckets()
     except Exception:
         status["minio"] = "nok"
+
     return status

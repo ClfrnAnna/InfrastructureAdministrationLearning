@@ -1,0 +1,7 @@
+FROM fluent/fluentd:v1.16-debian-1
+
+USER root
+
+RUN gem install fluent-plugin-opensearch fluent-plugin-s3 --no-document
+
+USER fluent
