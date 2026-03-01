@@ -1,3 +1,20 @@
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    curl \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /tmp/build
+
+COPY requirements.txt .
+
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
 FROM python:3.11-slim AS runtime
 
 # Добавляем curl для healthcheck
