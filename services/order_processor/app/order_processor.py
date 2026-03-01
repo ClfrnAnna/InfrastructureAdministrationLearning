@@ -14,7 +14,8 @@ from pythonjsonlogger import jsonlogger
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-log_formatter = jsonlogger.JsonFormatter('%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s',timestamp=True)
+log_formatter = jsonlogger.JsonFormatter('%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s',
+                                         timestamp=True)
 
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
@@ -25,7 +26,7 @@ json_handler = logging.FileHandler('log/processor/gateway.log')
 json_handler.setFormatter(log_formatter)
 logger.addHandler(json_handler)
 
-hostname = socket.gethostname()
+hostname = os.getenv('CONTAINER_NAME', socket.gethostname())
 
 app = FastAPI()
 
@@ -165,7 +166,7 @@ async def process_message(message: aio_pika.IncomingMessage):
 
         save_log_to_s3(order_id, f"Order created: {description}")
 
-        logger.info(f"Order {order_id} created", extra={'hostname': hostname})
+        logger.info(f"Order {order_id} created: {description}", extra={'hostname': hostname})
 
 
 async def consume_queue(retries=30, delay=2):

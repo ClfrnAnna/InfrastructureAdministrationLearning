@@ -17,6 +17,7 @@ services:
     networks:
       - app1-network
     environment:
+      - CONTAINER_NAME=fastapi-app1-container
       - APP_INSTANCE=1
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
@@ -44,6 +45,7 @@ services:
     networks:
       - app2-network
     environment:
+      - CONTAINER_NAME=fastapi-app2-container
       - APP_INSTANCE=2
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
@@ -68,6 +70,8 @@ services:
     networks:
       - app1-network
       - app2-network
+    environment:
+      - CONTAINER_NAME=order-processor-container
     ports:
       - "8001:8000"
     healthcheck:

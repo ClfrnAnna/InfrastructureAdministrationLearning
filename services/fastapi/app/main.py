@@ -26,7 +26,7 @@ json_handler = logging.FileHandler('log/main/gateway.log')
 json_handler.setFormatter(log_formatter)
 logger.addHandler(json_handler)
 
-hostname = socket.gethostname()
+hostname = os.getenv('CONTAINER_NAME', socket.gethostname())
 
 processor_url = os.getenv('PROCESSOR_URL')
 rmq_queue = os.getenv('RABBITMQ_QUEUE', 'orders_queue')
@@ -91,7 +91,7 @@ async def create_order(request: Request):
         logger.error(f"RabbitMQ error: {e}", extra={'hostname': hostname})
         raise HTTPException(status_code=503, detail="RabbitMQ unavailable")
 
-    logger.info(f"Order {order_id} created", extra={'hostname': hostname})
+    logger.info(f"Order {order_id} created: {description}", extra={'hostname': hostname})
     return {"order_id": order_id}
 
 

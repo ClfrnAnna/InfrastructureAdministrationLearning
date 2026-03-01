@@ -11,3 +11,23 @@ or
 docker-compose -f docker-compose-infra.yml up -d
 Start-Sleep -Seconds 15
 docker-compose -f docker-compose-services.yml up -d
+
+
+Testing:
+
+info
+Invoke-RestMethod -Uri http://localhost:8000/order/create -Method POST -Body "Test order 1"
+Invoke-RestMethod -Uri http://localhost:8000/order/create -Method POST -Body "An important order marked urgent"
+Invoke-RestMethod -Uri http://localhost:8000/order/create -Method POST -Body "Standart order"
+
+Invoke-RestMethod -Uri http://localhost:8000/order/123
+Invoke-RestMethod -Uri http://localhost:8000/order/456
+
+# Остановить RabbitMQ
+docker stop rabbitmq-container
+
+# Попытаться создать заказ (должен вернуть 503)
+Invoke-RestMethod -Uri http://localhost:8000/order/create -Method POST -Body "Ошибка" -ErrorAction SilentlyContinue
+
+# Запустить RabbitMQ обратно
+docker start rabbitmq-container
