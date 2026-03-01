@@ -14,8 +14,7 @@ minio_client = Minio(
     os.getenv("MINIO_ENDPOINT", "minio:9000"),
     access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
     secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-    secure=False
-)
+    secure=False)
 
 s3_bucket = os.getenv("MINIO_BUCKET", "order-logs")
 
@@ -110,8 +109,7 @@ async def consume_queue():
 
     channel = await connection.channel()
     queue = await channel.declare_queue(
-        os.getenv("RMQ_QUEUE", "orders_queue"), durable=True
-    )
+        os.getenv("RMQ_QUEUE", "orders_queue"), durable=True)
 
     await queue.consume(process_message)
     print('Processor started, waiting for messages...')
