@@ -1,0 +1,254 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: rabbitmq-container
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - rabbitmq-network
+      - app1-network
+      - app2-network
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./services/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-container
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - rabbitmq-network
+      - app1-network
+      - app2-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+
+  pg-master:
+    build:
+      context: ./services/postgres
+      dockerfile: Dockerfile.postgres
+    image: local-postgres:patroni
+    container_name: pg-master
+    hostname: pg-master
+    env_file:
+      - .env
+    expose:
+      - 8008
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-master:/var/lib/postgresql/data
+    networks:
+      - postgres-cluster
+    command: patroni /postgres0.yml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  pg-slave:
+    build:
+      context: ./services/postgres
+      dockerfile: Dockerfile.postgres
+    image: local-postgres:patroni
+    container_name: pg-slave
+    hostname: pg-slave
+    env_file:
+      - .env
+    expose:
+      - 8008
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg-slave:/var/lib/postgresql/data
+    networks:
+      - postgres-cluster
+    command: patroni /postgres1.yml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  zoo:
+    image: confluentinc/cp-zookeeper:7.7.1
+    container_name: zoo
+    hostname: zoo
+    ports:
+      - "2181:2181"
+    networks:
+      - postgres-cluster
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT:-2181}
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  haproxy:
+    image: haproxy:3.0
+    container_name: api-gateway
+    ports:
+      - "5432:5432"
+      - "7000:7000"
+      - "8000:8000"
+    depends_on:
+      pg-master:
+        condition: service_started
+      pg-slave:
+        condition: service_started
+      zoo:
+        condition: service_healthy
+      fastapi-app1:
+        condition: service_started
+      fastapi-app2:
+        condition: service_started
+    volumes:
+      - ./services/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+    networks:
+      - postgres-cluster
+      - app1-network
+      - app2-network
+    restart: always
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  fastapi-app1:
+    build:
+      context: ./services/fastapi
+      dockerfile: Dockerfile
+      args:
+        - APP_VERSION=${APP_VERSION}
+    image: fastapi-app:${APP_VERSION}
+    container_name: fastapi-app1-container
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - app1-data:/app/data:rw
+    networks:
+      - app1-network
+    environment:
+      - APP_INSTANCE=1
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  fastapi-app2:
+    build:
+      context: ./services/fastapi
+      dockerfile: Dockerfile
+      args:
+        - APP_VERSION=${APP_VERSION}
+    image: fastapi-app:${APP_VERSION}
+    container_name: fastapi-app2-container
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - app2-data:/app/data:rw
+    networks:
+      - app2-network
+    environment:
+      - APP_INSTANCE=2
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  health-checker-app:
+    build:
+      context: ./services/healthchecker
+      dockerfile: Dockerfile.healthchecker
+    image: health-checker:${APP_VERSION}
+    container_name: health-checker-app-container
+    restart: on-failure:5
+    env_file:
+      - .env
+    networks:
+      - app1-network
+      - app2-network
+    depends_on:
+      fastapi-app1:
+        condition: service_started
+      fastapi-app2:
+        condition: service_started
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/healthy')" ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  rabbitmq-data:
+    driver: local
+  redis-data:
+    driver: local
+  pg-master:
+    driver: local
+  pg-slave:
+    driver: local
+  app1-data:
+    driver: local
+  app2-data:
+    driver: local
+
+networks:
+  rabbitmq-network:
+    driver: bridge
+  app1-network:
+    driver: bridge
+  app2-network:
+    driver: bridge
+  postgres-cluster:
+    driver: bridge

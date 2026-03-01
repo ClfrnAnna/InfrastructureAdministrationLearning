@@ -7,24 +7,17 @@ import json
 from datetime import datetime
 from minio import Minio
 from io import BytesIO
-import redis.asyncio as aioredis
-import logging
-
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
-logger = logging.getLogger("order-processor")
 
 app = FastAPI()
-redis_client = None
-minio_client = Minio(os.getenv("MINIO_ENDPOINT", "minio:9000"),
-                     access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-                     secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-                     secure=False)
+
+minio_client = Minio(
+    os.getenv("MINIO_ENDPOINT", "minio:9000"),
+    access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+    secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+    secure=False
+)
 
 s3_bucket = os.getenv("MINIO_BUCKET", "order-logs")
-
-db_pool = None
 
 
 async def get_db_pool():
@@ -33,12 +26,7 @@ async def get_db_pool():
         port=os.getenv("ORDERS_DB_PORT"),
         user=os.getenv("ORDERS_DB_USER"),
         password=os.getenv("ORDERS_DB_PASSWORD"),
-        database=os.getenv("ORDERS_DB_NAME"),
-        min_size=1,
-        max_size=10,
-        ssl=False,
-        timeout=10,
-        command_timeout=30
+        database=os.getenv("ORDERS_DB_NAME")
     )
 
 
@@ -53,48 +41,41 @@ def save_log_to_s3(order_id: int, message: str):
             existing_content = response.read()
             response.close()
             response.release_conn()
-        except Exception as read_err:
-            logger.debug(f"No existing log file or error reading: {read_err}")
+        except:
+            pass
 
         log_line = f"[{datetime.now().strftime('%H:%M:%S')}] Order {order_id}: {message}\n"
         new_content = existing_content + log_line.encode('utf-8')
 
-        minio_client.put_object(s3_bucket, filename, BytesIO(new_content), len(new_content))
-        logger.info(f"Logged to MinIO: order {order_id} - {message}")
+        minio_client.put_object(
+            s3_bucket, filename, BytesIO(new_content), len(new_content)
+        )
     except Exception as e:
-        logger.error(f"S3 upload failed for order {order_id}: {e}")
+        print(f"S3 upload failed: {e}")
 
 
 @app.get("/order/{order_id}")
 async def get_order(order_id: int):
-    logger.info(f"Request received for order {order_id}")
-    cache_key = f"order:{order_id}"
-    cached = await redis_client.get(cache_key)
-    if cached:
-        logger.info(f"Cache hit for order {order_id}")
-        return json.loads(cached)
+    pool = await get_db_pool()
 
-    logger.info(f"Cache miss for order {order_id}, querying database")
-    async with db_pool.acquire() as conn:
+    async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT id, status, description FROM orders WHERE id = $1",
-            order_id)
+            order_id
+        )
+
+    await pool.close()
 
     if not row:
-        logger.warning(f"Order {order_id} not found in database")
         raise HTTPException(status_code=404, detail="Order not found")
 
-    result = {"id": row['id'],
-              "status": row['status'],
-              "description": row['description']}
+    save_log_to_s3(order_id, f"Status requested - current status: {row['status']}")
 
-    ttl = int(os.getenv("REDIS_CACHE_TTL", 60))
-    await redis_client.setex(cache_key, ttl, json.dumps(result))
-    logger.info(f"Cached order {order_id} with TTL {ttl}")
-    asyncio.create_task(
-        asyncio.to_thread(save_log_to_s3, order_id, f"Status requested - current status: {row['status']}"))
-
-    return result
+    return {
+        "id": row['id'],
+        "status": row['status'],
+        "description": row['description']
+    }
 
 
 async def process_message(message: aio_pika.IncomingMessage):
@@ -102,57 +83,35 @@ async def process_message(message: aio_pika.IncomingMessage):
         data = json.loads(message.body.decode('utf-8'))
         order_id = data['id']
         description = data['description']
-        logger.info(f"Processing message for order {order_id}: {description}")
-        async with db_pool.acquire() as conn:
+
+        pool = await get_db_pool()
+
+        async with pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO orders (id, status, description) VALUES ($1, 'created', $2)",
-                order_id, description)
-            logger.info(f"Processing message for order {order_id}: {description}")
-        asyncio.create_task(asyncio.to_thread(save_log_to_s3, order_id, f"Order {order_id} created: {description}"))
+                order_id, description
+            )
+
+        await pool.close()
+        save_log_to_s3(order_id, f"Order {order_id} created: {description}")
 
 
 @app.on_event("startup")
 async def startup():
-    global redis_client, db_pool
-    logger.info("Starting up order-processor...")
-    logger.info(f"DB params: host={os.getenv('ORDERS_DB_HOST')}, port={os.getenv('ORDERS_DB_PORT')}, db={os.getenv('ORDERS_DB_NAME')}, user={os.getenv('ORDERS_DB_USER')}")
-    redis_client = aioredis.from_url(
-        f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', 6379)}",
-        password=os.getenv('REDIS_PASSWORD'),
-        decode_responses=True)
-    await redis_client.ping()
-    logger.info("Redis connection established")
-    db_pool = await get_db_pool()
-    async with db_pool.acquire() as conn:
-        await conn.execute("SELECT 1")
-    logger.info("Database connection established")
-
     asyncio.create_task(consume_queue())
-    logger.info("Startup complete")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    logger.info("Startup complete")
-    if redis_client:
-        await redis_client.close()
-        logger.info("Redis connection closed")
-    if db_pool:
-        await db_pool.close()
-        logger.info("Redis connection closed")
 
 
 async def consume_queue():
     connection = await aio_pika.connect_robust(
         host=os.getenv("RMQ_HOST", "rabbitmq"),
         login=os.getenv("RMQ_USER", "admin"),
-        password=os.getenv("RMQ_PASSWORD", "admin"))
+        password=os.getenv("RMQ_PASSWORD", "admin")
+    )
 
     channel = await connection.channel()
     queue = await channel.declare_queue(
-        os.getenv("RABBITMQ_QUEUE", "orders_queue"), durable=True)
-    logger.info(f"Consuming from queue: {queue.name}")
+        os.getenv("RMQ_QUEUE", "orders_queue"), durable=True
+    )
 
     await queue.consume(process_message)
-    logger.info("Processor started, waiting for messages...")
-    await asyncio.Future()
+    print('Processor started, waiting for messages...')

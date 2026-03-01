@@ -1,6 +1,6 @@
 Starting:
 
-docker-compose -f docker-compose-infra.yml -f docker-compose.yml up -d
+docker-compose -f docker-compose.yml -f docker-compose-infra.yml up -d --build
 
 Testing for PowerShell:
 
