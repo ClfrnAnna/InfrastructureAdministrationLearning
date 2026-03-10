@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'fastapi-app1'
+    static_configs:
+      - targets: ['fastapi-app1-container:8000']
+  - job_name: 'fastapi-app2'
+    static_configs:
+      - targets: ['fastapi-app2-container:8000']
+  - job_name: 'order-processor'
+    static_configs:
+      - targets: ['order-processor-container:8000']
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: [ 'localhost:9090' ]
+    metrics_path: '/metrics'

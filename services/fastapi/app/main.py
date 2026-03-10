@@ -8,12 +8,12 @@ import httpx
 import logging
 import socket
 from pythonjsonlogger import jsonlogger
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-log_formatter = jsonlogger.JsonFormatter(
-    '%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s',
-    timestamp=True)
+log_formatter = jsonlogger.JsonFormatter('%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s',timestamp=True)
 
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
@@ -41,6 +41,12 @@ r = redis.Redis(
 app = FastAPI()
 logger.info("FastAPI gateway started", extra={'hostname': hostname})
 
+orders_http_requests_total = Counter(
+    'orders_http_requests_total',
+    'Total number of HTTP requests to order_processor service')
+
+Instrumentator().instrument(app).expose(app)
+
 
 @app.get("/")
 def read_root():
@@ -60,7 +66,8 @@ async def healthy(response: Response):
     try:
         conn = await aio_pika.connect_robust(
             f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/",
-            timeout=5)
+            timeout=5
+        )
         await conn.close()
         rabbit_status = "ok"
     except Exception as e:
@@ -78,9 +85,7 @@ async def create_order(request: Request):
     logger.info(f"Creating order {order_id}", extra={'hostname': hostname})
 
     try:
-        connection = await aio_pika.connect_robust(
-            f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/"
-        )
+        connection = await aio_pika.connect_robust(f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/")
         async with connection:
             channel = await connection.channel()
             await channel.declare_queue(rmq_queue, durable=True)
@@ -98,6 +103,8 @@ async def create_order(request: Request):
 @app.get("/order/{order_id}")
 async def get_order(order_id: int):
     logger.info(f"Fetching order {order_id}", extra={'hostname': hostname})
+    orders_http_requests_total.inc()
+
     if not processor_url:
         logger.error("PROCESSOR_URL not configured", extra={'hostname': hostname})
         raise HTTPException(status_code=500, detail="Processor URL not configured")

@@ -11,15 +11,18 @@ import redis.asyncio as redis
 import logging
 import socket
 from pythonjsonlogger import jsonlogger
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter
+import datetime
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-log_formatter = jsonlogger.JsonFormatter('%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s',
-                                         timestamp=True)
+log_formatter = jsonlogger.JsonFormatter('%(timestamp)s %(levelname)s %(module)s %(message)s %(hostname)s', timestamp=True)
 
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 logger.addHandler(console_handler)
+
 log_dir = 'log/processor'
 os.makedirs(log_dir, exist_ok=True)
 json_handler = logging.FileHandler('log/processor/gateway.log')
@@ -29,6 +32,12 @@ logger.addHandler(json_handler)
 hostname = os.getenv('CONTAINER_NAME', socket.gethostname())
 
 app = FastAPI()
+
+orders_processed_total = Counter('orders_processed_total', 'Total number of processed orders')
+orders_by_hour = Counter('orders_by_hour_total', 'Total orders by hour of day', ['hour'])
+orders_created_total = Counter('orders_created_total', 'Total number of orders created')
+order_views_total = Counter('order_views_total', 'Total number of successful order views')
+Instrumentator().instrument(app).expose(app)
 
 minio_client = Minio(
     os.getenv("MINIO_ENDPOINT", "minio:9000"),
@@ -109,8 +118,7 @@ def save_log_to_s3(order_id: int, message: str):
         log_line = f"[{datetime.now().strftime('%H:%M:%S')}] Order {order_id}: {message}\n"
         new_content = existing_content + log_line.encode('utf-8')
 
-        minio_client.put_object(
-            s3_bucket, filename, BytesIO(new_content), len(new_content))
+        minio_client.put_object(s3_bucket, filename, BytesIO(new_content), len(new_content))
     except Exception as e:
         logger.error(f"S3 upload failed: {e}", extra={'hostname': hostname})
 
@@ -123,6 +131,7 @@ async def get_order(order_id: int):
     cached = await redis_client.get(cache_key)
     if cached:
         logger.info(f"Cache hit for order {order_id}", extra={'hostname': hostname})
+        order_views_total.inc()
         return json.loads(cached)
 
     async with read_pool.acquire() as conn:
@@ -137,18 +146,19 @@ async def get_order(order_id: int):
     result = {
         "id": row['id'],
         "status": row['status'],
-        "description": row['description']
-    }
+        "description": row['description']}
 
     await redis_client.setex(cache_key, int(os.getenv("REDIS_CACHE_TTL", 60)), json.dumps(result))
 
     save_log_to_s3(order_id, f"Status requested - current status: {row['status']}")
 
     logger.info(f"Order {order_id} status retrieved", extra={'hostname': hostname})
+    order_views_total.inc()
     return result
 
 
 async def process_message(message: aio_pika.IncomingMessage):
+    logger.info("Message received, processing...", extra={'hostname': hostname})
     async with message.process():
         data = json.loads(message.body.decode('utf-8'))
         order_id = data['id']
@@ -166,27 +176,29 @@ async def process_message(message: aio_pika.IncomingMessage):
 
         save_log_to_s3(order_id, f"Order created: {description}")
 
+        orders_processed_total.inc()
+        orders_created_total.inc()
+
         logger.info(f"Order {order_id} created: {description}", extra={'hostname': hostname})
+        current_hour = str(datetime.datetime.now().hour)
+        orders_by_hour.labels(hour=current_hour).inc()
 
 
 async def consume_queue(retries=30, delay=2):
     for i in range(retries):
         try:
             connection = await aio_pika.connect_robust(
-                f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/"
-            )
+                f"amqp://{os.getenv('RMQ_USER')}:{os.getenv('RMQ_PASSWORD')}@{os.getenv('RMQ_HOST')}/")
             channel = await connection.channel()
             queue = await channel.declare_queue(
-                os.getenv("RMQ_QUEUE", "orders_queue"), durable=True
-            )
+                os.getenv("RMQ_QUEUE", "orders_queue"), durable=True)
             await queue.consume(process_message)
             logger.info("Connected to RabbitMQ, waiting for messages...", extra={'hostname': hostname})
             return
         except Exception as e:
             logger.warning(
                 f"RabbitMQ connection attempt {i + 1}/{retries} failed: {e}",
-                extra={'hostname': hostname}
-            )
+                extra={'hostname': hostname})
             await asyncio.sleep(delay)
     raise Exception("Could not connect to RabbitMQ after multiple attempts")
 
