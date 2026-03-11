@@ -21,6 +21,7 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+      - "15692:15692"
 
   redis:
     image: redis:7-alpine
@@ -209,6 +210,7 @@ services:
       - "9090:9090"
     volumes:
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
     networks:
@@ -244,6 +246,48 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    environment:
+      - REDIS_ADDR=redis-container:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    ports:
+      - "9121:9121"
+    networks:
+      - app1-network
+      - app2-network
+    restart: unless-stopped
+    depends_on:
+      - redis
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9121/metrics" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:${POSTGRES_PASSWORD}@pg-master:5432/postgres?sslmode=disable
+    ports:
+      - "9187:9187"
+    networks:
+      - postgres-cluster
+      - app1-network
+    restart: unless-stopped
+    depends_on:
+      - pg-master
+    healthcheck:
+      test: [ "CMD", "sh", "-c", "ps aux | grep -v grep | grep -q postgres_exporter" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   rabbitmq-data:
   redis-data:

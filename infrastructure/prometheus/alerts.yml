@@ -1,0 +1,48 @@
+groups:
+  - name: service_alerts
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"fastapi-app1|fastapi-app2|order-processor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is not working"
+          description: "Instance {{ $labels.instance }} unavailable for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: rate(fastapi_requests_total{status=~"5.."}[5m]) / rate(fastapi_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{$labels.job }}"
+          description: "Error rate {{$value | humanizePercentage }} for the {{$labels.job }} service (instance {{$labels.instance }})"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unavailable"
+          description: "The Redis exporter reports that the server is unavailable."
+
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unavailable"
+          description: "The PostgreSQL exporter reports that the server is unavailable."
+
+      - alert: RabbitMQDown
+        expr: rabbitmq_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RabbitMQ is unavailable"
+          description: "RabbitMQ is unavailable for more than 1 minute."
