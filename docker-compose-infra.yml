@@ -1,8 +1,23 @@
+x-common-settings: &common-settings
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
 services:
   rabbitmq:
+    <<: *common-settings
     image: rabbitmq:4-management-alpine
     container_name: rabbitmq-container
-    restart: always
+    hostname: rabbitmq
     env_file:
       - .env
     networks:
@@ -10,10 +25,8 @@ services:
       - app1-network
       - app2-network
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
-      interval: 30s
-      timeout: 30s
-      retries: 3
       start_period: 60s
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
@@ -24,9 +37,10 @@ services:
       - "15692:15692"
 
   redis:
+    <<: *common-settings
     image: redis:7-alpine
     container_name: redis-container
-    restart: always
+    hostname: redis
     env_file:
       - .env
     networks:
@@ -34,10 +48,8 @@ services:
       - app1-network
       - app2-network
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
       start_period: 30s
     volumes:
       - redis-data:/data
@@ -46,6 +58,7 @@ services:
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
 
   pg-master:
+    <<: *common-settings
     build:
       context: ./infrastructure/postgres
       dockerfile: Dockerfile.postgres
@@ -64,13 +77,14 @@ services:
       - postgres-cluster
     command: patroni /postgres0.yml
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
-      interval: 30s
       timeout: 15s
       retries: 5
       start_period: 40s
 
   pg-slave:
+    <<: *common-settings
     build:
       context: ./infrastructure/postgres
       dockerfile: Dockerfile.postgres
@@ -89,13 +103,14 @@ services:
       - postgres-cluster
     command: patroni /postgres1.yml
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
-      interval: 30s
       timeout: 15s
       retries: 5
       start_period: 40s
 
   zoo:
+    <<: *common-settings
     image: confluentinc/cp-zookeeper:7.7.1
     container_name: zoo
     hostname: zoo
@@ -107,18 +122,18 @@ services:
       - .env
       - .env.infra
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 10s
-      timeout: 5s
-      retries: 5
       start_period: 10s
 
   haproxy:
+    <<: *common-settings
     image: haproxy:3.0
     container_name: api-gateway
     ports:
-      - "5432:5432"   # write
-      - "5435:5433"   # read
+      - "5432:5432"
+      - "5435:5433"
       - "7000:7000"
       - "8000:8000"
     depends_on:
@@ -134,7 +149,6 @@ services:
       - postgres-cluster
       - app1-network
       - app2-network
-    restart: always
     healthcheck:
       test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
       interval: 30s
@@ -143,6 +157,7 @@ services:
       start_period: 20s
 
   minio:
+    <<: *common-settings
     image: minio/minio:latest
     container_name: minio-container
     command: server /data --console-address ":9001"
@@ -157,13 +172,13 @@ services:
       - app1-network
       - app2-network
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
       timeout: 20s
-      retries: 3
       start_period: 20s
 
   opensearch:
+    <<: *common-settings
     image: opensearchproject/opensearch:2.11.1
     container_name: opensearch
     env_file:
@@ -177,14 +192,12 @@ services:
     networks:
       - logging-network
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9200" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
       start_period: 40s
 
-
   fake-kibana:
+    <<: *common-settings
     image: opensearchproject/opensearch-dashboards:2.11.1
     container_name: fake-kibana
     ports:
@@ -195,15 +208,13 @@ services:
       - opensearch
     networks:
       - logging-network
-    restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5601/api/status" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
       start_period: 40s
 
   prometheus:
+    <<: *common-settings
     image: prom/prometheus:v2.48.1
     container_name: prometheus
     ports:
@@ -217,15 +228,13 @@ services:
       - app1-network
       - app2-network
       - logging-network
-    restart: unless-stopped
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
       start_period: 10s
 
   grafana:
+    <<: *common-settings
     image: grafana/grafana:11.2.0
     container_name: grafana
     ports:
@@ -239,15 +248,13 @@ services:
       - app1-network
       - app2-network
       - logging-network
-    restart: unless-stopped
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
       start_period: 10s
 
   redis-exporter:
+    <<: *common-settings
     image: oliver006/redis_exporter:latest
     container_name: redis-exporter
     environment:
@@ -258,17 +265,15 @@ services:
     networks:
       - app1-network
       - app2-network
-    restart: unless-stopped
     depends_on:
       - redis
     healthcheck:
-      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9121/metrics" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9121/metrics"]
       start_period: 10s
 
   postgres-exporter:
+    <<: *common-settings
     image: prometheuscommunity/postgres-exporter:latest
     container_name: postgres-exporter
     environment:
@@ -278,14 +283,11 @@ services:
     networks:
       - postgres-cluster
       - app1-network
-    restart: unless-stopped
     depends_on:
       - pg-master
     healthcheck:
-      test: [ "CMD", "sh", "-c", "ps aux | grep -v grep | grep -q postgres_exporter" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-defaults
+      test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep -q postgres_exporter"]
       start_period: 10s
 
 volumes:
@@ -299,11 +301,16 @@ volumes:
 networks:
   rabbitmq-network:
     driver: bridge
+    name: rabbitmq-network
   app1-network:
     driver: bridge
+    name: app1-network
   app2-network:
     driver: bridge
+    name: app2-network
   postgres-cluster:
     driver: bridge
+    name: postgres-cluster
   logging-network:
     driver: bridge
+    name: logging-network

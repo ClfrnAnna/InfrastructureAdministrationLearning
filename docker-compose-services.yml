@@ -1,5 +1,20 @@
+x-common-settings: &common-settings
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
 services:
   fastapi-app1:
+    <<: *common-settings
     build:
       context: ./services/fastapi
       dockerfile: Dockerfile
@@ -7,13 +22,12 @@ services:
         - APP_VERSION=${APP_VERSION}
     image: fastapi-app:${APP_VERSION}
     container_name: fastapi-app1-container
-    restart: always
     env_file:
       - .env
       - .env.services
     volumes:
       - app1-data:/app/data:rw
-      -  ./logs:/app/log:rw
+      - ./logs:/app/log:rw
     networks:
       - app1-network
     environment:
@@ -21,13 +35,11 @@ services:
       - APP_INSTANCE=1
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   fastapi-app2:
+    <<: *common-settings
     build:
       context: ./services/fastapi
       dockerfile: Dockerfile
@@ -35,13 +47,12 @@ services:
         - APP_VERSION=${APP_VERSION}
     image: fastapi-app:${APP_VERSION}
     container_name: fastapi-app2-container
-    restart: always
     env_file:
       - .env
       - .env.services
     volumes:
       - app2-data:/app/data:rw
-      -  ./logs:/app/log:rw
+      - ./logs:/app/log:rw
     networks:
       - app2-network
     environment:
@@ -49,19 +60,16 @@ services:
       - APP_INSTANCE=2
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   order-processor:
+    <<: *common-settings
     build:
       context: ./services/order_processor
       dockerfile: Dockerfile.processor
     image: order-processor:${APP_VERSION}
     container_name: order-processor-container
-    restart: always
     env_file:
       - .env
       - .env.services
@@ -75,13 +83,11 @@ services:
     ports:
       - "8001:8000"
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   health-checker-app:
+    <<: *common-settings
     build:
       context: ./services/healthchecker
       dockerfile: Dockerfile.healthchecker
@@ -124,11 +130,11 @@ services:
     restart: "no"
 
   my-service:
+    <<: *common-settings
     build:
       context: ./services/my_service
       dockerfile: Dockerfile
     container_name: my-service-container
-    restart: always
     env_file:
       - .env
       - .env.services
@@ -140,13 +146,12 @@ services:
       - app1-network
       - app2-network
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep python.*app.py || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
       start_period: 10s
 
   fluentd:
+    <<: *common-settings
     build:
       context: ./infrastructure/fluent
       dockerfile: Dockerfile.fluentd
@@ -164,12 +169,9 @@ services:
       - fastapi-app1
       - fastapi-app2
       - order-processor
-    restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "sh", "-c", "ps aux | grep -v grep | grep fluentd" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      <<: *healthcheck-defaults
+      test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep fluentd"]
       start_period: 10s
 
 volumes:
@@ -178,8 +180,11 @@ volumes:
 
 networks:
   app1-network:
-    external: true
+    driver: bridge
+    name: app1-network
   app2-network:
-    external: true
+    driver: bridge
+    name: app2-network
   logging-network:
-    external: true
+    driver: bridge
+    name: logging-network

@@ -3,6 +3,17 @@ import os
 import asyncpg
 import sys
 
+SQL_FILE = os.getenv('INIT_SQL_FILE', '/app/init-db.sql')
+
+
+async def read_sql_file(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Failed to read SQL file {filepath}: {e}")
+        sys.exit(1)
+
 
 async def wait_for_db(host, port, user, password, database, retries=30, delay=2):
     for i in range(retries):
@@ -17,15 +28,15 @@ async def wait_for_db(host, port, user, password, database, retries=30, delay=2)
     raise Exception(f"Could not connect to database '{database}' after {retries} attempts")
 
 
-async def create_tables(conn):
-    await conn.execute('''
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY,
-            status VARCHAR(50) NOT NULL,
-            description TEXT
-        );
-    ''')
-    print("Table 'orders' ensured.")
+async def execute_sql(conn, sql):
+    statements = [stmt.strip() for stmt in sql.split(';') if stmt.strip()]
+    for stmt in statements:
+        try:
+            await conn.execute(stmt)
+            print(f"Executed: {stmt[:50]}...")
+        except Exception as e:
+            print(f"Error executing statement: {stmt[:100]}...\n{e}")
+            raise
 
 
 async def main():
@@ -45,9 +56,13 @@ async def main():
     else:
         print(f"Database '{database}' already exists.")
     await admin_conn.close()
+
     await wait_for_db(host, port, user, password, database)
+
+    sql = await read_sql_file(SQL_FILE)
+
     db_conn = await asyncpg.connect(host=host, port=port, user=user, password=password, database=database)
-    await create_tables(db_conn)
+    await execute_sql(db_conn, sql)
     await db_conn.close()
     print("Database initialization completed successfully.")
 

@@ -1,0 +1,118 @@
+stages:
+  - test
+  - build
+  - verify
+
+lint-dockerfiles:
+  stage: test
+  image: hadolint/hadolint:latest-debian
+  script:
+    - hadolint services/fastapi/Dockerfile
+    - hadolint services/order_processor/Dockerfile.processor
+    - hadolint services/healthchecker/Dockerfile.healthchecker
+    - hadolint services/init_db/Dockerfile
+    - hadolint services/init_minio/Dockerfile
+    - hadolint services/my_service/Dockerfile
+    - hadolint infrastructure/fluent/Dockerfile.fluentd
+  tags:
+    - docker-runner
+
+build-fastapi:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t fastapi-app:latest ./services/fastapi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+build-order-processor:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t order-processor:latest -f ./services/order_processor/Dockerfile.processor ./services/order_processor
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+build-health-checker:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t health-checker:latest -f ./services/healthchecker/Dockerfile.healthchecker ./services/healthchecker
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+build-init-db:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t init-db:latest ./services/init_db
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+build-init-minio:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t init-minio:latest ./services/init_minio
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+build-my-service:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t my-service:latest ./services/my_service
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+build-fluentd:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t fluentd:latest -f ./infrastructure/fluent/Dockerfile.fluentd ./infrastructure/fluent
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker-runner
+
+check-images:
+  stage: verify
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker images | grep fastapi-app || (echo "fastapi-app not found" && exit 1)
+    - docker images | grep order-processor || (echo "order-processor not found" && exit 1)
+    - docker images | grep health-checker || (echo "health-checker not found" && exit 1)
+    - docker images | grep init-db || (echo "init-db not found" && exit 1)
+    - docker images | grep init-minio || (echo "init-minio not found" && exit 1)
+    - docker images | grep my-service || (echo "my-service not found" && exit 1)
+    - docker images | grep fluentd || (echo "fluentd not found" && exit 1)
+  tags:
+    - docker-runner
